@@ -2221,37 +2221,6 @@ function exportPDF(mode) {
 
 </script>
 
-<script>
-// Service Worker for offline PWA
-if ('serviceWorker' in navigator) {
-  const swCode = `
-const CACHE = 'bigrig-markout-v11';
-self.addEventListener('install', e => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(['./', location.href])));
-  self.skipWaiting();
-});
-self.addEventListener('activate', e => {
-  e.waitUntil(caches.keys().then(keys =>
-    Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))
-  ));
-  self.clients.claim();
-});
-self.addEventListener('fetch', e => {
-  e.respondWith(caches.match(e.request).then(r => r || fetch(e.request).then(res => {
-    const clone = res.clone();
-    caches.open(CACHE).then(c => c.put(e.request, clone));
-    return res;
-  }).catch(() => caches.match('./'))));
-});
-  `;
-  const blob = new Blob([swCode], {type: 'application/javascript'});
-  const url = URL.createObjectURL(blob);
-  navigator.serviceWorker.register(url).then(() => {
-    URL.revokeObjectURL(url);
-  });
-}
-</script>
-
 <div id="labelPrintPage">
   <div class="lp-toolbar">
     <button class="lp-tb-print" onclick="exportLabelPDF()" id="lp-pdf-btn">⬇ PDF exportieren</button>
