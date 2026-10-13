@@ -77,7 +77,10 @@ textarea:focus { border-color: #666; }
 #progressBar.done #pb-label { color:#4ade80; }
 
 /* ── LAYER BAR ── */
-#layerBar { display:none; flex-shrink:0; align-items:center; gap:6px; padding:4px 10px; background:#0d0d0d; border-bottom:1px solid #1a1a1a; flex-wrap:wrap; }
+/* position:relative + z-index above the Plan-view map overlay (which goes
+   position:fixed z-index:50, see toggleMap()) so this bar - like .topbar -
+   stays visible/usable on top of the map instead of being covered by it. */
+#layerBar { display:none; flex-shrink:0; align-items:center; gap:6px; padding:4px 10px; background:#0d0d0d; border-bottom:1px solid #1a1a1a; flex-wrap:wrap; position:relative; z-index:60; }
 .layer-btn { background:#1e1e1e; color:#aaa; border:1px solid #333; padding:3px 10px; border-radius:12px; font-size:11px; cursor:pointer; white-space:nowrap; display:inline-flex; align-items:center; gap:4px; transition:all 0.15s; }
 .layer-btn.layer-add { background:#1a1a2e; color:#818cf8; border-color:#3730a3; }
 .layer-remove { font-size:13px; color:#666; margin-left:2px; line-height:1; }
@@ -247,7 +250,10 @@ textarea:focus { border-color: #666; }
 /* ── LIST ── */
 #listPane { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; }
 .grid { display: grid; grid-template-columns: 1fr 72px 1fr; }
-.group-bar { display: flex; flex-wrap: wrap; gap: 5px; padding: 6px 10px; background: #0d0d0d; border-bottom: 1px solid #222; flex-shrink: 0; }
+.grid-headrow, .grid-row { display: contents; }
+/* Same reasoning as #layerBar above: stays above the fixed full-screen
+   Plan-view map overlay instead of being hidden underneath it. */
+.group-bar { display: flex; flex-wrap: wrap; gap: 5px; padding: 6px 10px; background: #0d0d0d; border-bottom: 1px solid #222; flex-shrink: 0; position: relative; z-index: 60; }
 .grp-btn { background: #1a1a1a; border: 1px solid #444; color: #ccc; padding: 4px 10px; border-radius: 20px; font-size: 11px; cursor: pointer; white-space: nowrap; transition: all 0.15s; }
 .grp-btn.hidden { background: #111; color: #555; border-color: #333; }
 .grp-btn.kg { border-style: dashed; }
@@ -278,6 +284,7 @@ textarea:focus { border-color: #666; }
 .mc-y  { font-size: 11px; color: #888; white-space: nowrap; display: block; line-height: 1.2; }
 .mc.done .mc-name { color: #2a2a2a; text-decoration: line-through; }
 .mc.done .mc-x { color: #2a2a2a; }
+.up-ring { display: inline-flex; border-radius: 50%; box-shadow: 0 0 0 4px #ec4899; flex-shrink: 0; }
 .mc.done .mc-sub { color: #1e1e1e; }
 .mc.done svg { opacity: 0.12; }
 .chk { width: 18px; min-width: 18px; height: 18px; border-radius: 50%; border: 1.5px solid #3a3a3a; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
@@ -315,24 +322,50 @@ textarea:focus { border-color: #666; }
 @media print {
   @page { size: A4 portrait; margin: 0mm; }
   * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+  html { background: #fff !important; }
   body { background: #fff !important; color: #000 !important; margin: 0; }
-  .topbar, #totalBar, .chk, #offsetDlg, #pdfDlg, .map-overlay,
+  .topbar, #totalBar, .chk, #offsetDlg, #pdfDlg, .map-overlay, #layerBar,
   .tab-bar, .group-bar, #progressBar, #celebrationOverlay { display: none !important; }
   html, body { height: auto !important; overflow: visible !important; }
   #viewScreen { display: flex !important; flex-direction: column; height: auto !important; overflow: visible !important; }
   #listPane { overflow: visible !important; height: auto !important; display: block !important; }
-  .grid { display: grid !important; grid-template-columns: 1fr 72px 1fr !important; }
-  .cell { background: #fff !important; border: 1px solid #ddd !important; min-height: 36px !important; break-inside: avoid !important; page-break-inside: avoid !important; }
-  .row-mid { background: #f0f0f0 !important; border: 1px solid #ccc !important; cursor: default; break-inside: avoid !important; page-break-inside: avoid !important; }
-  .col-hdr { background: #e0e0e0 !important; color: #333 !important; border: 1px solid #ccc !important; position: static !important; }
-  .yv { color: #000 !important; font-weight: 700; font-size: 13px !important; }
-  .dl { color: #666 !important; font-size: 8px !important; }
-  .mc-name { color: #000 !important; font-size: 12px !important; }
-  .mc-x { color: #222 !important; font-size: 11px !important; }
-  .mc-sub { color: #555 !important; font-size: 9px !important; }
-  .mc.done { opacity: 0.35 !important; }
-  .null-row { background: #d4edda !important; }
-  .null-row .yv, .null-row .dl { color: #155724 !important; }
+  /* CSS Grid does not paginate reliably across printed pages in Chromium
+     (rows get cut into blank/broken pages and the header doesn't repeat),
+     and even a div styled with display:table-header-group is NOT repeated
+     on every printed page by Chromium - only a genuine <table><thead>
+     element is. So for print we hide the on-screen .grid entirely and
+     instead show #printListTable, a real <table> rebuilt from the same
+     row content right before printing (see buildPrintTable()). */
+  .grid { display: none !important; }
+  #printListTable { display: table !important; width: 100% !important; table-layout: fixed !important; border-collapse: collapse !important; }
+  #printListTable thead { display: table-header-group !important; }
+  #printListTable tr { display: table-row !important; break-inside: avoid !important; page-break-inside: avoid !important; }
+  /* .cell and .row-mid are flex containers on screen - force real
+     table-cell display here or the browser breaks the table structure
+     (flex children of a <tr> get wrapped in anonymous table-cells and
+     the whole layout collapses into stacked rows instead of columns). */
+  #printListTable th, #printListTable td { display: table-cell !important; vertical-align: middle !important; }
+  #printListTable th.sl, #printListTable td.sl,
+  #printListTable th.sr, #printListTable td.sr { width: 42% !important; }
+  #printListTable th.mid, #printListTable td.row-mid { width: 16% !important; }
+  #printListTable td.cell { background: #fff !important; border: 1px solid #ddd !important; min-height: 36px !important; padding: 6px 8px !important; flex-wrap: wrap !important; }
+  /* On screen these are flex containers (justify-content: flex-end for
+     SL, flex-start for SR); as table-cells that becomes text-align, and
+     the .mc chips (now inline-flex, not flex row items) need their own
+     margin since the flex "gap" no longer applies between them. */
+  #printListTable td.cell.sl { text-align: right !important; }
+  #printListTable td.cell.sr { text-align: left !important; }
+  #printListTable .mc { break-inside: avoid !important; page-break-inside: avoid !important; display: inline-flex !important; margin: 0 4px 3px 4px; }
+  #printListTable td.row-mid { background: #f0f0f0 !important; border: 1px solid #ccc !important; text-align: center; padding: 5px 3px !important; }
+  #printListTable td.row-mid.null-row { background: #d4edda !important; }
+  #printListTable td.row-mid.null-row .yv, #printListTable td.row-mid.null-row .dl { color: #155724 !important; }
+  #printListTable th { background: #e0e0e0 !important; color: #333 !important; border: 1px solid #ccc !important; font-size: 10px; font-weight: 600; letter-spacing: 0.05em; padding: 4px 8px !important; text-align: center; }
+  #printListTable .yv { color: #000 !important; font-weight: 700; font-size: 13px !important; }
+  #printListTable .dl { color: #666 !important; font-size: 8px !important; }
+  #printListTable .mc-name { color: #000 !important; font-size: 12px !important; }
+  #printListTable .mc-x { color: #222 !important; font-size: 11px !important; }
+  #printListTable .mc-sub { color: #555 !important; font-size: 9px !important; }
+  #printListTable .mc.done { opacity: 0.35 !important; }
   #mapPane { display: none !important; }
   body.label-print-mode #viewScreen { display: none !important; }
 
@@ -367,12 +400,12 @@ textarea:focus { border-color: #666; }
     <div style="font-size:11px;color:#666;margin-bottom:12px;">Werte werden von allen Koordinaten abgezogen</div>
     <div style="display:flex;gap:8px;margin-bottom:8px;align-items:center;">
       <span style="color:#888;font-size:12px;width:20px;">X</span>
-      <input id="offX" type="number" step="0.01" value="0" style="flex:1;background:#111;border:1px solid #333;color:#fff;padding:6px 8px;border-radius:6px;font-size:13px;">
+      <input id="offX" type="text" inputmode="decimal" value="0" style="flex:1;background:#111;border:1px solid #333;color:#fff;padding:6px 8px;border-radius:6px;font-size:13px;">
       <span style="color:#666;font-size:11px;">m</span>
     </div>
     <div style="display:flex;gap:8px;margin-bottom:16px;align-items:center;">
       <span style="color:#888;font-size:12px;width:20px;">Y</span>
-      <input id="offY" type="number" step="0.01" value="0" style="flex:1;background:#111;border:1px solid #333;color:#fff;padding:6px 8px;border-radius:6px;font-size:13px;">
+      <input id="offY" type="text" inputmode="decimal" value="0" style="flex:1;background:#111;border:1px solid #333;color:#fff;padding:6px 8px;border-radius:6px;font-size:13px;">
       <span style="color:#666;font-size:11px;">m</span>
     </div>
     <div style="display:flex;gap:8px;">
@@ -390,7 +423,7 @@ textarea:focus { border-color: #666; }
   </div>
   <div class="login-box">
     <div class="login-title">RIGGING MARKOUT</div>
-    <div style="font-size:11px;color:#555;letter-spacing:0.1em;margin-top:-8px;margin-bottom:4px;">BR MARKOUT V3</div>
+    <div style="font-size:11px;color:#555;letter-spacing:0.1em;margin-top:-8px;margin-bottom:4px;">BR MARKOUT V4</div>
     <input class="login-input" id="loginUser" type="text" placeholder="Login" autocomplete="username">
     <input class="login-input" id="loginPass" type="password" placeholder="Passwort" autocomplete="current-password">
     <button class="login-btn" onclick="doLogin()">Anmelden</button>
@@ -415,8 +448,18 @@ textarea:focus { border-color: #666; }
     <button class="btn-primary" onclick="parseAndShow()">Importieren</button>
     <button class="btn-sample" onclick="pasteClipboard()">📋 Einfügen</button>
   </div>
-  <div id="errBox" class="err" style="display:none"></div></div>
+  <div id="errBox" class="err" style="display:none"></div>
+  <div class="or-line">oder DXF (Koordinaten-Import, Beta)</div>
+  <label class="drop-area" id="dxfDropArea">
+    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#666" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="display:block;margin:0 auto">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+    </svg>
+    <p>DXF ablegen oder tippen zum Auswählen<br><span style="font-size:11px;color:#666">Liest INSERT-Punkte (Vectorworks/AutoCAD-Export) — bitte gegen ein echtes Beispiel prüfen</span></p>
+    <input type="file" accept=".dxf" id="dxfInput" style="position:absolute;top:0;left:0;width:100%;height:100%;opacity:0;cursor:pointer;">
+  </label>
+  <div id="dxfErrBox" class="err" style="display:none"></div>
 </div>
+
 
 <!-- VIEW SCREEN -->
 <div id="viewScreen">
@@ -479,12 +522,26 @@ textarea:focus { border-color: #666; }
   <!-- LIST -->
   <div id="listPane">
     <div class="grid">
-      <div class="col-hdr sl">SR</div>
-      <div class="col-hdr mid">Y</div>
-      <div class="col-hdr sr">SL</div>
+      <div class="grid-headrow">
+        <div class="col-hdr sl">SL</div>
+        <div class="col-hdr mid">Y</div>
+        <div class="col-hdr sr">SR</div>
+      </div>
       <div id="gridBody" style="display:contents"></div>
     </div>
   </div>
+
+  <!-- Print-only table. Chromium only repeats a table header on every
+       printed page when it's a REAL <table>/<thead> element - a div with
+       CSS display:table-header-group does NOT repeat across pages. So for
+       PDF export we build this hidden, semantically-real table from the
+       same row markup right before printing (see buildPrintTable()) and
+       show it only in @media print, while the normal .grid above (used
+       on screen) is hidden for print. -->
+  <table id="printListTable" style="display:none;">
+    <thead><tr><th class="sl">SL</th><th class="mid">Y</th><th class="sr">SR</th></tr></thead>
+    <tbody id="printListTableBody"></tbody>
+  </table>
 
   <!-- MAP -->
   <div id="mapPane">
@@ -644,6 +701,41 @@ function kgLabel(kg) {
   return kg + 'kg';
 }
 
+// Manche CSV-Exporte (z.B. "RaR_00_BR_Utopia_Master26") liefern gar keine
+// Symbolname-/Richtungs-Spalte, nur ein kurzes "Name"-Feld wie "1t D8+" oder
+// "0,25t D8+". Daraus lässt sich die Traglast-Klasse + Modell eindeutig
+// rekonstruieren (die Tonnage-Angabe entspricht direkt den SWL-Klassen der
+// Datenbank), NICHT aber die Haenge-Richtung (Up/Down) - die steht in diesem
+// Format nirgends. Auf Wunsch des Users wird deshalb per Default "Down"
+// angenommen (haeufigster Fall) - tatsaechliche "Up"/Bodenzug-Punkte zeigen
+// dadurch das falsch ausgerichtete Symbol UND bekommen nicht den orangenen
+// Up-Ring, da die echte Richtung aus dieser Datenquelle nicht bekannt ist.
+// Nur als Fallback gedacht: greift nur, wenn keine Symbolname-/Up-Down-
+// Spalte gefunden wurde (siehe parseCSV/parseDXF - iSym < 0).
+function inferSymbolFromName(name, kg) {
+  if (!name) return '';
+  const s = name.trim();
+  // "Xt D8+" chain hoist shorthand (e.g. "1t D8+", "0,25t D8+") -> exact
+  // matching motor symbol, if that exact weight/model exists in the DB.
+  const m = s.match(/^(\d+(?:[.,]\d+)?)\s*t\s+(D8\+?)$/i);
+  if (m) {
+    const kgFromName = Math.round(parseFloat(m[1].replace(',', '.')) * 1000);
+    const model = m[2].toUpperCase();
+    const candidate = `BR Motor ${kgFromName} kg ${model} Down`;
+    if (SYMBOL_DB[candidate]) return candidate;
+  }
+  // "DH" shorthand for Deadhang (Seilabspannung) -> exact weight-tier
+  // Deadhang symbol, if that tier exists in the DB (500/1000/1500/2000/
+  // 3000/4000kg). Deliberately exact-match only, same as above: a weight
+  // with no matching tier (e.g. 214kg) falls through to '' and the normal
+  // weight-colored fallback shape below, rather than guessing/rounding to
+  // a nearby tier that might not represent the same hardware.
+  if (/^DH$/i.test(s) && kg) {
+    const candidate = `BR Deadhang ${Math.round(kg)}kg`;
+    if (SYMBOL_DB[candidate]) return candidate;
+  }
+  return '';
+}
 function weightToShape(kg) {
   if (kg <= 0)    return 'sq';
   if (kg <= 400)  return 'dia';   // ~0,25t: bis 400kg
@@ -666,7 +758,7 @@ function weightToColors(kg) {
   if (kg <= 2000) return { a:'#1050d0' };
   return              { a:'#d060d0' };
 }
-function brSVG(symbolname, kg, pre, S) {
+function brSVG(symbolname, kg, pre, S, hasSymbolCol) {
   S = S || 36;
   // Exact match from database
   if (symbolname && SYMBOL_DB[symbolname]) {
@@ -676,8 +768,27 @@ function brSVG(symbolname, kg, pre, S) {
   if (symbolname && symbolname.includes('Fall Arrester')) {
     return `<svg width="${S}" height="${S}" viewBox="0 0 ${S} ${S}"><circle cx="${S/2}" cy="${S/2}" r="${S/2-2}" fill="none" stroke="#888" stroke-width="1.5"/></svg>`;
   }
-  // Fallback: use old shape-based rendering
+  // Unrecognized/foreign symbol name: an actual Symbolname COLUMN value was
+  // given but it isn't in our database (typo, foreign motor, corrupted
+  // export, ...). Flag it clearly with a neutral GREY diamond + "?" instead
+  // of silently falling back to the normal weight-colored shape below,
+  // which could be mistaken for a real, verified motor symbol.
+  // IMPORTANT: this must be gated on hasSymbolCol (an explicit Symbolname
+  // column value existed), NOT just "symbolname is non-empty" - callers
+  // pass the motor's free-text Name field here too as a last-resort guess
+  // when there is no Symbolname column at all (e.g. the standard Utopia
+  // export format), and that Name text is expected not to match a DB key -
+  // it must still fall through to the normal weight-based shape, not get
+  // flagged as "foreign".
   const isDH = symbolname && symbolname.toUpperCase().includes('DEADHANG');
+  if (symbolname && !isDH && hasSymbolCol) {
+    const ow2 = pre ? 2.2 : 1.2;
+    const oc2 = pre ? '#e82020' : '#333';
+    const m2 = ow2/2+0.5, cx2 = S/2, cy2 = S/2;
+    const T2=`${cx2},${m2}`, R2=`${S-m2},${cy2}`, B2=`${cx2},${S-m2}`, L2=`${m2},${cy2}`, C2=`${cx2},${cy2}`;
+    return `<svg width="${S}" height="${S}" viewBox="0 0 ${S} ${S}"><polygon points="${T2} ${L2} ${C2}" fill="#8a8a8a"/><polygon points="${T2} ${R2} ${C2}" fill="#bdbdbd"/><polygon points="${R2} ${B2} ${C2}" fill="#8a8a8a"/><polygon points="${B2} ${L2} ${C2}" fill="#bdbdbd"/><polygon points="${T2} ${R2} ${B2} ${L2}" fill="none" stroke="${oc2}" stroke-width="${ow2}" stroke-linejoin="round"/><text x="${cx2}" y="${cy2}" text-anchor="middle" dominant-baseline="central" font-size="${S*0.42}" font-weight="700" fill="#222">?</text></svg>`;
+  }
+  // Fallback: use old shape-based rendering
   const shape = isDH ? 'dh' : weightToShape(kg);
   const shapeColor = {dia:'#28a030',tri:'#f07020',circ:'#e01050',sq:'#1050d0',dh:'#606060'}[shape]||'#888';
   const A = shapeColor, Y = '#f0e040';
@@ -712,8 +823,12 @@ let snapY = false;
 let refOffsetX = 0, refOffsetY = 0; // reference offset
 let showFields = { bez: true, sym: true, id: true, x: true, y: false, kg: false, trim: true, basket: false, name: false, kraft: false };
 let lastRaw = '';
-let csvLayers = []; // [{name, raw, motors, visible, color}]
-let hiddenLayers = new Set();
+let csvLayers = []; // [{id, name, raw, motors, visible, color}]
+let hiddenLayers = new Set(); // Set of layer IDs (NOT names - two imported
+// files/layers can legitimately have the same display name, e.g. the same
+// CSV imported twice, and toggling/removing must only affect the one the
+// user actually clicked, not every layer that happens to share that name.
+let layerIdSeq = 0;
 const LAYER_COLORS = [
   { bg:'#14532d', border:'#16a34a', text:'#4ade80', dot:'#22c55e' },
   { bg:'#1e3a5f', border:'#2563eb', text:'#60a5fa', dot:'#3b82f6' },
@@ -749,21 +864,46 @@ if (_lionWatermarkImg.complete) {
 // CSV PARSE
 // ---------------------------------------------
 
+// Symmetric rounding: rounds .5-cases away from zero consistently for
+// positive AND negative values. Math.round() alone rounds n.5 towards
+// +Infinity, which is asymmetric for negative numbers and causes
+// boundary values (e.g. exactly 0.025m / 2.5cm before a 5cm snap) to
+// round inconsistently depending on sign. This fixes the "0.05m edge
+// case" bug where points right at a rounding boundary could jump to
+// the wrong row/column depending on which side of zero they were on.
+function roundSym(val, step) {
+  step = step || 0.01;
+  const scaled = val / step;
+  const rounded = scaled >= 0 ? Math.floor(scaled + 0.5) : Math.ceil(scaled - 0.5);
+  return rounded * step;
+}
+
 function parseCSV(raw) {
   const lines = raw.trim().split(/[\r\n]+/).filter(l => l.trim());
   if (lines.length < 2) throw new Error('CSV zu kurz.');
   const sep = lines[0].includes('\t') ? '\t' : lines[0].includes(';') ? ';' : ',';
   const h = lines[0].split(sep).map(s => s.trim().replace(/^"|"$/g, '').toLowerCase());
   const fi = ns => {
+    // Pass 1: exact header match, checked for every candidate first. This
+    // matters because a short candidate like 'x' or 'y' (and even 'name')
+    // would otherwise match ANY header that merely contains that letter/
+    // word as a substring - e.g. 'y' matches inside 'Symbolname', silently
+    // stealing the Y-column detection and making every row's Y = NaN.
     for (const n of ns) {
-      const idx = h.findIndex(hh => hh === n || hh.includes(n));
+      const idx = h.findIndex(hh => hh === n);
+      if (idx >= 0) return idx;
+    }
+    // Pass 2: fall back to substring matching only if no exact match at
+    // all was found for any candidate name.
+    for (const n of ns) {
+      const idx = h.findIndex(hh => hh.includes(n));
       if (idx >= 0) return idx;
     }
     return -1;
   };
   const iX    = fi(['x-pos','x_pos','x pos','x']);
   const iY    = fi(['y-pos','y_pos','y pos','y']);
-  const iSym  = fi(['symbolname','symbol name','symbol']);
+  const iSym  = fi(['symbolname','symbol name','symbol','up/down']);
   const iN    = fi(['bezeichnung','motortyp','type','typ','name']);
   const iId   = fi(['kettenzug-id','id','kettenzug','kz-id']);
   const iLfdNr = fi(['lfd.nr','lfd nr','laufende','lfd','nr']);
@@ -775,6 +915,16 @@ function parseCSV(raw) {
   const motors = [];
   for (let r = 1; r < lines.length; r++) {
     const c = lines[r].split(sep).map(s => s.trim().replace(/^"|"$/g, ''));
+    // Safety net: if a row splits into MORE fields than the header has,
+    // the delimiter almost always collides with a German decimal comma
+    // inside a number (e.g. "37,80" gets cut into "37" and "80" when the
+    // file uses ',' as both the field separator and the decimal mark).
+    // That silently shifts every following column - dangerous for a
+    // rigging tool, since it can turn into wrong positions/loads with no
+    // visible error. Fail loudly instead of importing corrupted data.
+    if (sep === ',' && c.length > h.length) {
+      throw new Error(`Spalten-Konflikt in Zeile ${r + 1}: ${c.length} Werte gefunden, aber nur ${h.length} Spalten im Header. Vermutlich enthält die Datei Dezimalkommas (z.B. "37,80") UND verwendet Komma als Trennzeichen - dadurch werden Zahlen in zwei Spalten zerschnitten. Bitte beim Export Semikolon (;) statt Komma als Trennzeichen verwenden.`);
+    }
     let x = parseFloat(c[iX] ? c[iX].replace(',','.') : '');
     let y = parseFloat(c[iY] ? c[iY].replace(',','.') : '');
     if (isNaN(x) || isNaN(y)) continue;
@@ -786,11 +936,12 @@ function parseCSV(raw) {
     const basket = iBas  >= 0 ? (c[iBas]   || '')  : '';
     const name       = iN    >= 0 ? (c[iN]     || '')  : '';
     const id         = iId   >= 0 ? (c[iId]    || String(r)) : String(r);
-    const symbolname = iSym  >= 0 ? (c[iSym]   || '')  : '';
+    const symbolname = iSym  >= 0 ? (c[iSym]   || '')  : inferSymbolFromName(name, kg);
     const kraftRaw   = iKraft >= 0 ? (c[iKraft] || '')  : '';
     const kraft      = kraftRaw.replace(/[^0-9,.-]/g,'').replace(',','.');
-    const rx = Math.round((x - refOffsetX)*100)/100;
-    const ry = Math.round((y - refOffsetY)*100)/100;
+    let rx = roundSym(x - refOffsetX, 0.01);
+    let ry = roundSym(y - refOffsetY, 0.01);
+    if (snapY) { rx = roundSym(rx, 0.05); }
     const lfdnr = iLfdNr >= 0 && c[iLfdNr] ? parseInt(c[iLfdNr]) || null : null;
     motors.push({ id, name, symbolname, x: rx, y: ry, kg: isNaN(kg) ? 0 : kg, trim, basket, kraft, lfdnr });
   }
@@ -809,17 +960,21 @@ function groupByY(motors) {
       else groups.push({ y: m.y, refY: m.y, motors: [m] });
     }
   } else {
-    // 5cm Snap: cluster with 6cm tolerance, round mean to 5cm
+    // 5cm Snap: round EACH point's Y to the nearest 5cm gridline
+    // INDEPENDENTLY first, then group points that land on the exact same
+    // gridline. Previously this clustered raw (unrounded) points with a
+    // fixed 6cm tolerance around a running average and only rounded that
+    // average afterwards - two points as little as ~5.5cm apart (e.g. one
+    // at Y=0.00m and another at Y=0.055m, both meant for different 5cm
+    // gridlines) fell inside that 6cm tolerance and got merged into ONE
+    // row, in practice swallowing real points near zero into the NULL row
+    // instead of giving them their own row at their correct gridline.
     for (const m of sorted) {
-      const g = groups.find(g => Math.abs(g.refY - m.y) <= 0.06);
-      if (g) {
-        g.motors.push(m);
-        g.refY = g.motors.reduce((s,m) => s + m.y, 0) / g.motors.length;
-      } else {
-        groups.push({ y: m.y, refY: m.y, motors: [m] });
-      }
+      const ry = roundSym(m.y, 0.05);
+      const g = groups.find(g => Math.abs(g.y - ry) <= 0.001);
+      if (g) g.motors.push(m);
+      else groups.push({ y: ry, motors: [m] });
     }
-    groups.forEach(g => { g.y = Math.round(g.refY * 20) / 20; });
   }
   return groups;
 }
@@ -831,7 +986,11 @@ function slSrSplit(motors) {
   return { sl, sr };
 }
 function dsLabel(y, allY) {
-  if (Math.abs(y) < 0.06) return 'NULL';
+  // Only treat true zero (floating-point epsilon) as the NULL/reference
+  // row. Previously this used a 0.06m tolerance, which incorrectly
+  // swallowed real points at e.g. Y=0.05m into the NULL row instead of
+  // giving them their own row.
+  if (Math.abs(y) < 0.005) return 'NULL';
   return '';  // no DS/US label on regular rows
 }
 function motorKey(m) { return (m.id + '_' + m.name).replace(/'/g,''); }
@@ -839,9 +998,17 @@ function motorKey(m) { return (m.id + '_' + m.name).replace(/'/g,''); }
 // ---------------------------------------------
 // LIST RENDERING
 // ---------------------------------------------
+// "Up"-Ausrichtung (Bodenzug, invertiert zur normalen "Down"-Hängung) wird
+// am Symbolnamen erkannt (z.B. "BR Motor 1000 kg D8+ Up") und in Liste +
+// Planview mit einem farbigen Ring hervorgehoben, damit sie beim Rig nicht
+// übersehen wird. Wortgrenze, damit z.B. "universell" nicht faelschlich matcht.
+function isUpOriented(m) {
+  return (m.symbolname && /\bUp\b/.test(m.symbolname)) || (m.name && /\bUp\b/i.test(m.name));
+}
 function chipHtml(m, side) {
   const pre = (m.symbolname && m.symbolname.includes('Pre')) || (m.name && m.name.toLowerCase().includes('pre'));
-  const icon = brSVG(m.symbolname || m.name, m.kg, pre, 32);
+  const icon = brSVG(m.symbolname || m.name, m.kg, pre, 32, !!m.symbolname);
+  const isUp = isUpOriented(m);
   // Round X to nearest 5cm
   const xRounded = m.x;
   const xStr = (m.x >= 0 ? '+' : '') + m.x.toFixed(2) + 'm';
@@ -862,7 +1029,7 @@ function chipHtml(m, side) {
   const layerCol = (m._layerColor && csvLayers.length > 1 && !isDone) ? m._layerColor.text : null;
   const layerStyle = layerCol ? `--layer-col:${layerCol};` : '';
   return `<div class="mc${isSL?' sl':''}${isDone?' done':''}${labelSet&&labelSet.has(key)?' label-sel':''}" style="${layerStyle}" onclick="labelMode ? labelToggleChip('${key}',this) : toggleDone('${key}',this)">
-    ${showFields.sym ? icon : ''}
+    ${showFields.sym ? (isUp && !isDone ? `<span class="up-ring" title="Up / Bodenzug">${icon}</span>` : icon) : ''}
     <div class="mc-meta">
       ${showFields.id ? `<span class="mc-name">#${m.id}</span>` : ''}
       ${showFields.x  ? `<span class="mc-x">${xStr}</span>` : ''}
@@ -875,7 +1042,7 @@ function chipHtml(m, side) {
 function renderGrid(groups) {
   const allY = groups.map(g => g.y);
   // Check if a NULL row (Y=0) already exists
-  const hasNull = groups.some(g => Math.abs(g.y) < 0.06);
+  const hasNull = groups.some(g => Math.abs(g.y) < 0.005);
   // Build ordered list, inject NULL row if missing
   let working = [...groups];
   if (!hasNull) {
@@ -891,14 +1058,22 @@ function renderGrid(groups) {
     const isNull = label === 'NULL';
     const slHtml = sl.filter(Boolean).map(m => chipHtml(m,'sl')).join('');
     const srHtml = sr.filter(Boolean).map(m => chipHtml(m,'sr')).join('');
-    html += `<div class="cell sl multi-sl${g.synthetic?' synthetic':''}">${slHtml}</div>`;
     const rowAllDone = g.motors.length > 0 && g.motors.every(m => doneSet.has(motorKey(m)));
+    // Die drei Zellen einer Zeile werden in "grid-row" gewrappt: im
+    // Bildschirm-Layout ist der Wrapper unsichtbar (display:contents),
+    // damit das bestehende CSS-Grid unveraendert funktioniert. Im Druck
+    // wird daraus eine table-row (siehe @media print) - CSS Grid bricht
+    // beim Drucken ueber mehrere Seiten sonst in leere Seiten und
+    // wiederholt die Kopfzeile nicht.
+    html += `<div class="grid-row">`;
+    html += `<div class="cell sl multi-sl${g.synthetic?' synthetic':''}">${slHtml}</div>`;
     html += `<div class="row-mid${isNull?' null-row':''}${g.synthetic?' synthetic-mid':''}${rowAllDone?' row-done':''}" onclick="toggleRow(${g.y})">
       <span class="dl">${label}</span>
       <span class="yv">${g.y.toFixed(2)}m</span>
       ${g.motors.length > 0 ? `<div class="row-chk${rowAllDone?' row-chk-on':''}"></div>` : ''}
     </div>`;
     html += `<div class="cell sr multi-sr${g.synthetic?' synthetic':''}">${srHtml}</div>`;
+    html += `</div>`;
   }
   return html;
 }
@@ -937,11 +1112,51 @@ function drawMapSymbol(ctx, m, cx, cy, S, pre) {
       imgEl.onload = () => { if (mapVisible) drawMap(); };
     }
   }
-  // Fallback: draw empty circle
-  ctx.beginPath();
-  ctx.arc(cx, cy, S/2 - 1, 0, Math.PI*2);
+  // Unrecognized/foreign symbol name: an actual Symbolname column value was
+  // given but doesn't match our database (see brSVG() for the full
+  // rationale). Flag it with a filled grey diamond + "?" so it stands out
+  // from both real symbols and the plain weight-shape fallback below (which
+  // is reserved for motors that never carried a Symbolname value at all).
+  const isDH = symbolname && symbolname.toUpperCase().includes('DEADHANG');
+  if (m.symbolname && !isDH) {
+    const r0 = S/2 - 1;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - r0); ctx.lineTo(cx + r0, cy);
+    ctx.lineTo(cx, cy + r0); ctx.lineTo(cx - r0, cy);
+    ctx.closePath();
+    ctx.fillStyle = '#8a8a8a';
+    ctx.fill();
+    ctx.strokeStyle = pre ? '#e82020' : '#333';
+    ctx.lineWidth = pre ? 2.2 : 1.2;
+    ctx.stroke();
+    ctx.fillStyle = '#222';
+    ctx.font = `700 ${Math.round(S*0.42)}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('?', cx, cy + 1);
+    return;
+  }
+  // Fallback for external/unknown production points: outline-only shape
+  // chosen by load, following the existing weightToShape convention
+  // (diamond ~<=0.4t, triangle ~<=0.8t, circle ~<=1.5t, square above).
+  // Outline-only (no fill) so it remains readable in B/W print.
+  const shape = weightToShape(m.kg);
+  const r = S/2 - 1;
   ctx.strokeStyle = pre ? '#e82020' : '#888';
   ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  if (shape === 'dia') {
+    ctx.moveTo(cx, cy - r); ctx.lineTo(cx + r, cy);
+    ctx.lineTo(cx, cy + r); ctx.lineTo(cx - r, cy);
+    ctx.closePath();
+  } else if (shape === 'tri') {
+    ctx.moveTo(cx, cy - r); ctx.lineTo(cx + r, cy + r);
+    ctx.lineTo(cx - r, cy + r); ctx.closePath();
+  } else if (shape === 'sq') {
+    ctx.rect(cx - r, cy - r, r*2, r*2);
+  } else {
+    ctx.arc(cx, cy, r, 0, Math.PI*2);
+  }
   ctx.stroke();
 }
 
@@ -1074,26 +1289,44 @@ function drawMap() {
       ctx.stroke();
     }
 
+    // "Up"-Ring: hebt Bodenzug-Punkte (invertiert zur normalen Down-Haengung)
+    // hervor, damit sie beim Einmessen nicht uebersehen werden. Eigener,
+    // groesserer Radius als der Layer-Ring, damit beide gleichzeitig sichtbar
+    // bleiben, falls ein Punkt beides ist.
+    if (isUpOriented(m) && !isDone) {
+      ctx.beginPath();
+      ctx.arc(px, py, R + 7, 0, Math.PI * 2);
+      ctx.strokeStyle = '#ec4899';
+      ctx.lineWidth = 4;
+      ctx.stroke();
+    }
+
     // Draw symbol directly on canvas using same logic as brSVG
     drawMapSymbol(ctx, m, px, py, SZ, pre, isDone);
 
     ctx.globalAlpha = 1;
 
-    // Label
+    // Label. Uses a black text OUTLINE (stroke) instead of a filled
+    // background rectangle behind the text - with real, densely packed
+    // shows (many points only a few cm/px apart, e.g. a truss full of
+    // chain hoists) the old solid background rects sat right next to each
+    // other and visually merged into one big solid black bar across the
+    // whole cluster, which looked exactly like a rendering bug. An outline
+    // still keeps each label readable against the dark map background,
+    // but overlapping labels now read as (messy but recognizable) text
+    // instead of an opaque block.
     const lbl = m.id || '';
     if (lbl) {
       const fs = 9;
       ctx.font = `600 ${fs}px -apple-system,sans-serif`;
-      const tw = ctx.measureText(lbl).width;
       const ly2 = py - R - 2;
       ctx.globalAlpha = isDone ? 0.25 : 1;
-      ctx.fillStyle = 'rgba(0,0,0,0.7)';
-      ctx.beginPath();
-      if (ctx.roundRect) ctx.roundRect(px-tw/2-2, ly2-fs, tw+4, fs+2, 2);
-      else ctx.rect(px-tw/2-2, ly2-fs, tw+4, fs+2);
-      ctx.fill();
-      ctx.fillStyle = isDone ? '#555' : '#fff';
       ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+      ctx.lineJoin = 'round';
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+      ctx.strokeText(lbl, px, ly2+1);
+      ctx.fillStyle = isDone ? '#555' : '#fff';
       ctx.fillText(lbl, px, ly2+1);
       ctx.textBaseline = 'alphabetic';
       ctx.globalAlpha = 1;
@@ -1218,7 +1451,7 @@ function labelPrint() {
     label.className = 'lp-label';
     const symName = m.symbolname || m.name || '';
     const pre = symName.toLowerCase().includes('pre');
-    const symHtml = brSVG(symName, m.kg, pre, 90);
+    const symHtml = brSVG(symName, m.kg, pre, 90, !!m.symbolname);
     // Kettenzug-ID is m.id (e.g. "CT2.1"), name is the long description
     const displayName = m.id || '—';
     const trimDisplay = (m.trim && m.trim !== '') ? parseFloat(m.trim).toFixed(2).replace('.',',') + ' m' : '—';
@@ -1424,7 +1657,7 @@ function updateGroupBar(motors) {
 
 function applyFilter() {
   const layerMotors = csvLayers.length > 0
-    ? csvLayers.filter(l => !hiddenLayers.has(l.name)).flatMap(l => l.motors)
+    ? csvLayers.filter(l => !hiddenLayers.has(l.id)).flatMap(l => l.motors)
     : (lastRaw ? parseCSV(lastRaw) : []);
   const filtered = layerMotors.filter(m => {
     if (hiddenGroups.has(extractPrefix(m))) return false;
@@ -1441,7 +1674,7 @@ function applyFilter() {
 
 function setAllGroups(showAll) {
   const all = csvLayers.length > 0
-    ? csvLayers.filter(l => !hiddenLayers.has(l.name)).flatMap(l => l.motors)
+    ? csvLayers.filter(l => !hiddenLayers.has(l.id)).flatMap(l => l.motors)
     : (lastRaw ? parseCSV(lastRaw) : []);
   const prefixes = [...new Set(all.map(m => extractPrefix(m)))];
   if (showAll) hiddenGroups.clear();
@@ -1498,8 +1731,14 @@ function reparseAllLayers() {
   if (csvLayers.length > 0) {
     csvLayers.forEach(layer => {
       const col = layer.color;
-      layer.motors = parseCSV(layer.raw);
-      layer.motors.forEach(m => { m._layer = layer.name; m._layerColor = col; });
+      try {
+        layer.motors = (layer.format === 'dxf') ? parseDXF(layer.raw) : parseCSV(layer.raw);
+        layer.motors.forEach(m => { m._layer = layer.name; m._layerColor = col; });
+      } catch (e) {
+        // Keep the layer's previous motors rather than letting one bad
+        // layer's re-parse error abort snap/swap/offset for every layer.
+        console.error('reparseAllLayers: Layer "' + layer.name + '" konnte nicht neu geparst werden:', e.message);
+      }
     });
   }
 }
@@ -1592,6 +1831,109 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 });
 
+// ---------------------------------------------
+// DXF IMPORT (Beta) — coordinate import from ASCII DXF
+// ---------------------------------------------
+// Reads INSERT entities (the standard way point-blocks/symbols are placed
+// in Vectorworks/AutoCAD DXF exports): group code 10/20 = insertion X/Y,
+// group code 2 = block/symbol name. Any ATTRIB entities directly following
+// an INSERT (before SEQEND) are read as attribute tag/value pairs (group
+// code 2 = tag, group code 1 = value) and mapped onto motor fields by
+// matching common tag-name keywords. This is a best-effort first version:
+// real Vectorworks exports vary, so results should be checked against a
+// real sample file and the tag-keyword list below adjusted if needed.
+function parseDXF(raw) {
+  const lines = raw.split(/\r\n|\r|\n/);
+  const motors = [];
+  let i = 0;
+  let idCounter = 0;
+
+  function nextPair() {
+    if (i + 1 >= lines.length) return null;
+    const code = lines[i].trim();
+    const value = lines[i+1].trim();
+    i += 2;
+    return { code, value };
+  }
+
+  while (i < lines.length) {
+    const pair = nextPair();
+    if (!pair) break;
+    if (pair.code === '0' && pair.value === 'INSERT') {
+      let x = null, y = null, blockName = '';
+      // Read the INSERT entity's own group codes until the next entity marker
+      while (i < lines.length) {
+        const savedI = i;
+        const p = nextPair();
+        if (!p) break;
+        if (p.code === '0') { i = savedI; break; } // next entity starts
+        if (p.code === '10') x = parseFloat(p.value);
+        else if (p.code === '20') y = parseFloat(p.value);
+        else if (p.code === '2') blockName = p.value;
+      }
+      if (x === null || y === null || isNaN(x) || isNaN(y)) continue;
+
+      // Collect any ATTRIB entities that follow, up to SEQEND
+      const attrs = {};
+      while (i < lines.length) {
+        const savedI = i;
+        const p = nextPair();
+        if (!p) break;
+        if (p.code === '0' && p.value === 'SEQEND') break;
+        if (p.code === '0' && p.value !== 'ATTRIB') { i = savedI; break; }
+        if (p.code === '0' && p.value === 'ATTRIB') {
+          let tag = '', val = '';
+          while (i < lines.length) {
+            const savedI2 = i;
+            const p2 = nextPair();
+            if (!p2) break;
+            if (p2.code === '0') { i = savedI2; break; }
+            if (p2.code === '2') tag = p2.value;
+            else if (p2.code === '1') val = p2.value;
+          }
+          if (tag) attrs[tag.toUpperCase()] = val;
+        }
+      }
+
+      idCounter++;
+      const findAttr = (keywords) => {
+        for (const k of Object.keys(attrs)) {
+          if (keywords.some(kw => k.includes(kw))) return attrs[k];
+        }
+        return '';
+      };
+      const idVal = findAttr(['ID', 'KZ', 'NR']) || String(idCounter);
+      const nameVal = findAttr(['NAME', 'BEZ', 'TYP']) || blockName;
+      const kgRaw = findAttr(['KG', 'TRAG', 'LAST', 'SWL']);
+      const kg = parseFloat((kgRaw || '').replace(/[^0-9,.-]/g,'').replace(',','.')) || 0;
+      let rx = roundSym(x - refOffsetX, 0.01);
+      const ry = roundSym(y - refOffsetY, 0.01);
+      if (snapY) { rx = roundSym(rx, 0.05); }
+      motors.push({ id: idVal, name: nameVal, symbolname: blockName, x: rx, y: ry, kg, trim: '', basket: '', kraft: '', lfdnr: null });
+    }
+  }
+  if (!motors.length) throw new Error('Keine INSERT-Punkte in der DXF gefunden. (Beta-Import — Format bitte prüfen.)');
+  return motors;
+}
+
+function handleDXFFile(file) {
+  const errBox = document.getElementById('dxfErrBox');
+  errBox.style.display = 'none';
+  const r = new FileReader();
+  r.onload = ev => {
+    try {
+      const raw = ev.target.result;
+      const motors = parseDXF(raw);
+      const name = file.name.replace(/\.dxf$/i, '');
+      addCSVLayer(name, raw, motors, 'dxf');
+    } catch (e) {
+      errBox.textContent = e.message;
+      errBox.style.display = 'block';
+    }
+  };
+  r.readAsText(file);
+}
+
 function parseAndShow(filename) {
   document.getElementById('errBox').style.display = 'none';
   const raw = document.getElementById('csvText').value.trim();
@@ -1626,11 +1968,11 @@ function loadMultipleCSVs(files) {
   });
 }
 
-function addCSVLayer(name, raw, motors) {
+function addCSVLayer(name, raw, motors, format) {
   const layerColor = getLayerColor(csvLayers.length);
+  const id = ++layerIdSeq;
   motors.forEach(m => { m._layer = name; m._layerColor = layerColor; });
-  csvLayers.push({ name, raw, motors, visible: true, color: layerColor });
-  hiddenLayers.delete(name);
+  csvLayers.push({ id, name, raw, motors, visible: true, color: layerColor, format: format || 'csv' });
   lastRaw = raw;
   applyFilter();
   updateLayerBar();
@@ -1650,7 +1992,7 @@ function updateLayerBar() {
   bar.style.display = 'flex';
   bar.innerHTML = '<span style="font-size:10px;color:#888;align-self:center;margin-right:6px;white-space:nowrap">EBENEN:</span>';
   csvLayers.forEach(layer => {
-    const active = !hiddenLayers.has(layer.name);
+    const active = !hiddenLayers.has(layer.id);
     const col = layer.color;
     const btn = document.createElement('button');
     btn.className = 'layer-btn';
@@ -1658,11 +2000,11 @@ function updateLayerBar() {
       ? `background:${col.bg};border-color:${col.border};color:${col.text};`
       : 'background:#111;border-color:#333;color:#555;';
     btn.textContent = layer.name;
-    btn.onclick = () => { toggleLayer(layer.name); };
+    btn.onclick = () => { toggleLayer(layer.id); };
     const x = document.createElement('span');
     x.className = 'layer-remove';
     x.textContent = '×';
-    x.onclick = (e) => { e.stopPropagation(); removeLayer(layer.name); };
+    x.onclick = (e) => { e.stopPropagation(); removeLayer(layer.id); };
     btn.appendChild(x);
     bar.appendChild(btn);
   });
@@ -1688,16 +2030,16 @@ function updateLayerBar() {
   bar.appendChild(addBtn);
 }
 
-function toggleLayer(name) {
-  if (hiddenLayers.has(name)) hiddenLayers.delete(name);
-  else hiddenLayers.add(name);
+function toggleLayer(id) {
+  if (hiddenLayers.has(id)) hiddenLayers.delete(id);
+  else hiddenLayers.add(id);
   applyFilter();
   updateLayerBar();
 }
 
-function removeLayer(name) {
-  csvLayers = csvLayers.filter(l => l.name !== name);
-  hiddenLayers.delete(name);
+function removeLayer(id) {
+  csvLayers = csvLayers.filter(l => l.id !== id);
+  hiddenLayers.delete(id);
   if (csvLayers.length === 0) { goBack(); return; }
   applyFilter();
   updateLayerBar();
@@ -1772,6 +2114,17 @@ da.addEventListener('drop',e=>{
   }
 });
 
+document.getElementById('dxfInput').addEventListener('change', function(e) {
+  const file = e.target.files[0];
+  if (file) handleDXFFile(file);
+});
+const dxfDa = document.getElementById('dxfDropArea');
+dxfDa.addEventListener('dragover', e => e.preventDefault());
+dxfDa.addEventListener('drop', e => {
+  e.preventDefault();
+  const file = Array.from(e.dataTransfer.files).find(f => f.name.match(/\.dxf$/i));
+  if (file) handleDXFFile(file);
+});
 
 function applyFiltersAndRender() {
   if (csvLayers.length > 0 || lastRaw) applyFilter();
@@ -1794,9 +2147,28 @@ function showOffsetDialog() {
   document.getElementById('offY').value = refOffsetY;
   document.getElementById('offsetDlg').style.display = 'flex';
 }
+function parseOffsetInput(raw) {
+  // Accepts German (comma) and English (period) decimal separators.
+  // Returns null if the value is not a valid number - the caller must NOT
+  // silently treat that as 0, since that previously caused wrong offsets
+  // to be applied without any warning.
+  const s = String(raw || '').trim().replace(',', '.');
+  if (s === '') return 0;
+  const n = parseFloat(s);
+  if (isNaN(n) || !/^-?\d+(\.\d+)?$/.test(s)) return null;
+  return n;
+}
 function applyOffset() {
-  refOffsetX = parseFloat(document.getElementById('offX').value) || 0;
-  refOffsetY = parseFloat(document.getElementById('offY').value) || 0;
+  const xRaw = document.getElementById('offX').value;
+  const yRaw = document.getElementById('offY').value;
+  const x = parseOffsetInput(xRaw);
+  const y = parseOffsetInput(yRaw);
+  if (x === null || y === null) {
+    alert('Ungültiger Zahlenwert bei X oder Y ("' + xRaw + '" / "' + yRaw + '"). Bitte Punkt oder Komma als Dezimaltrennzeichen verwenden, z.B. 16.5 oder 16,5.');
+    return;
+  }
+  refOffsetX = x;
+  refOffsetY = y;
   document.getElementById('offsetDlg').style.display = 'none';
   const btn = document.querySelector('button[onclick="showOffsetDialog()"]');
   if (btn) btn.classList.toggle('active', refOffsetX !== 0 || refOffsetY !== 0);
@@ -1814,7 +2186,32 @@ function resetOffset() {
 
 // -- PDF --
 
+function buildPrintTable() {
+  // Rebuilds #printListTableBody from the currently rendered #gridBody rows,
+  // using real <tr>/<td> so Chromium's print engine repeats the <thead> on
+  // every page (a CSS "display:table-header-group" div does not - see the
+  // comment on #printListTable above).
+  const tbody = document.getElementById('printListTableBody');
+  if (!tbody) return;
+  const rows = document.querySelectorAll('#gridBody .grid-row');
+  let html = '';
+  rows.forEach(row => {
+    const sl = row.querySelector('.cell.sl');
+    const mid = row.querySelector('.row-mid');
+    const sr = row.querySelector('.cell.sr');
+    const midClasses = mid ? mid.className.replace('row-mid', '').trim() : '';
+    html += `<tr>
+      <td class="cell sl${sl && sl.className.includes('synthetic') ? ' synthetic' : ''}">${sl ? sl.innerHTML : ''}</td>
+      <td class="row-mid ${midClasses}">${mid ? mid.innerHTML : ''}</td>
+      <td class="cell sr${sr && sr.className.includes('synthetic') ? ' synthetic' : ''}">${sr ? sr.innerHTML : ''}</td>
+    </tr>`;
+  });
+  tbody.innerHTML = html;
+}
+window.addEventListener('beforeprint', buildPrintTable);
+
 function exportPDF(mode) {
+  buildPrintTable();
   window.print();
 }
 
